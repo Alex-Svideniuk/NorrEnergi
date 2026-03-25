@@ -1,0 +1,931 @@
+<!DOCTYPE html>
+<html lang="sv" translate="no">
+<head>
+  <meta charset="UTF-8">
+  <meta name="google" content="notranslate">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>El Priser</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.2.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/moment.js/2.18.1/moment.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.3.3/chart.umd.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/chartjs-plugin-annotation/1.4.0/chartjs-plugin-annotation.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-moment@^1"></script>
+  <style>
+    /* ── Layout ── */
+    body { height: 100vh; max-height: 100vh; margin: 0; overflow: hidden; display: flex; flex-direction: column; background: #f8f9fa; }
+    #main { width: 100%; flex: 1; }
+    /* Inner content (stats, nav) is centred and capped at 800px */
+    .inner { max-width: 800px; width: 100%; margin: 0 auto; padding: 4px 8px; box-sizing: border-box; display: block; }
+    /* Charts are naturally full-width; on desktop cap via their own max-width */
+    .chart-wrap { width: 100%; max-width: 800px; margin: 0 auto; display: block; }
+    .chart-wrap canvas { width: 100% !important; display: block; }
+    footer {
+      position: sticky; bottom: 0;
+      font-size: clamp(11px, 2vw, 14px);
+      background-color: #dee2e6;
+      border-top: 1px solid #ced4da;
+      z-index: 10;
+    }
+
+    /* ── Stats bar ── */
+    .stats-bar {
+      display: flex;
+      flex-direction: row;
+      justify-content: space-between;
+      align-items: center;
+      width: 100%;
+    }
+    .stat-center { text-align: center; }
+    .stat-item { line-height: 1.15; }
+    .stat-left  { text-align: left; }
+    .stat-center { text-align: center; }
+    .stat-right { text-align: right; }
+    div:has(.price) { }
+    .stat-label { font-size: clamp(10px, 2.2vw, 14px); color: #555; }
+    .price { font-size: clamp(18px, 4vw, 34px); width: 100%; line-height: 1.1; }
+    .price > label { font-weight: bold; }
+    .price:has(#lblMinP) { color: #1a7a1a; }
+    .price:has(#lblCurP) { color: #0044cc; }
+    .price:has(#lblMaxP) { color: #b00000; }
+
+    /* ── Nav bar ── */
+    .nav-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 6px;
+      margin: 6px 0 2px 0;
+    }
+
+    /* Arrow buttons */
+    .nav-arrow {
+      flex-shrink: 0;
+      width: 40px; height: 40px;
+      border: none;
+      background: transparent;
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      padding: 0;
+      transition: opacity .15s;
+      user-select: none;
+    }
+    .nav-arrow:hover  { opacity: 0.6; }
+    .nav-arrow:active { opacity: 0.4; }
+    .nav-arrow:disabled, .nav-arrow.disabled { opacity: 0.2; pointer-events: none; }
+    .nav-arrow svg polyline { stroke: #0d6efd; }
+    .nav-arrow.disabled svg polyline { stroke: #adb5bd; }
+
+    /* Day pill strip */
+    .day-picker {
+      display: flex;
+      flex: 1;
+      gap: 5px;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+    .day-pill {
+      flex: 1;
+      min-width: 42px;
+      max-width: 80px;
+      padding: 5px 2px;
+      border-radius: 20px;
+      border: 1.5px solid #ced4da;
+      background: white;
+      cursor: pointer;
+      text-align: center;
+      transition: background .15s, border-color .15s, color .15s;
+      line-height: 1.2;
+    }
+    .day-pill .pill-dow  { font-size: clamp(9px, 1.8vw, 12px); color: #888; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+    .pill-short { display: inline; }
+    .pill-long  { display: none; }
+    .day-pill.label-wide .pill-short { display: none; }
+    .day-pill.label-wide .pill-long  { display: inline; }
+    .day-pill .pill-day  { font-size: clamp(14px, 2.8vw, 20px); font-weight: 700; color: #333; }
+    .day-pill .pill-mon  { font-size: clamp(8px, 1.5vw, 11px); color: #aaa; }
+    .day-pill.active     { background: #0d6efd; border-color: #0d6efd; }
+    .day-pill.active .pill-dow,
+    .day-pill.active .pill-day,
+    .day-pill.active .pill-mon { color: white; }
+    .day-pill.is-today   { border-color: #0d6efd; }
+    .day-pill.is-tomorrow { border-color: #6f42c1; }
+    .day-pill.is-tomorrow .pill-dow { color: #6f42c1; }
+    .day-pill:hover:not(.active) { background: #e9ecef; }
+    .pill-gap { align-self: center; color: #adb5bd; font-size: 10px; letter-spacing: -2px; padding: 0 2px; flex-shrink: 0; }
+
+    @media (min-width: 768px) {
+      .day-pill { padding: 3px 2px; min-width: 30px; max-width: 56px; border-radius: 10px; }
+      .day-pill .pill-dow { font-size: 8px; }
+      .day-pill .pill-day { font-size: 14px; }
+      .day-pill .pill-mon { font-size: 7px; }
+      .zone-select { font-size: 11px; padding: 3px 4px; }
+    }
+
+    /* Zone select */
+    .zone-select {
+      flex-shrink: 0;
+      font-size: clamp(13px, 2.2vw, 16px);
+      padding: 4px 6px;
+      border-radius: 8px;
+      border: 1.5px solid #ced4da;
+    }
+
+    /* Footer */
+    .footer-credit { color: #555; }
+    .claude-link { color: #c96b22; text-decoration: none; font-weight: 500; }
+    .claude-link:hover { text-decoration: underline; }
+
+    /* Spot sub-label */
+    .price-spot { font-size: clamp(9px, 1.6vw, 12px); color: #999; margin-top: 1px; }
+  </style>
+</head>
+<body>
+  <div id="main" class="d-flex flex-column">
+    <!-- Statistics -->
+    <div class="inner stats-bar py-2">
+      <div class="stat-item stat-left">
+        <div class="stat-label">Lowest <label id="lblMinT"></label></div>
+        <div class="price"><label id="lblMinP">--.-</label> &ouml;re/kWh</div>
+        <div class="price-spot">spot: <label id="lblMinSpot">--.-</label></div>
+      </div>
+      <div class="stat-item stat-center" id="divNow">
+        <div class="stat-label">Current <label id="lblCurT"></label></div>
+        <div class="price"><label id="lblCurP">--.-</label> &ouml;re/kWh</div>
+        <div class="price-spot">spot: <label id="lblCurSpot">--.-</label></div>
+      </div>
+      <div class="stat-item stat-right">
+        <div class="stat-label">Highest <label id="lblMaxT"></label></div>
+        <div class="price"><label id="lblMaxP">---.-</label> &ouml;re/kWh</div>
+        <div class="price-spot">spot: <label id="lblMaxSpot">--.-</label></div>
+      </div>
+    </div>
+
+    <!-- Hourly/Quarter Chart -->
+    <div class="chart-wrap">
+      <canvas id="hourlyChart"></canvas>
+    </div>
+
+    <!-- Navigation -->
+    <div class="inner">
+      <div class="nav-bar">
+        <button id="prev" class="nav-arrow" onclick="getPrices(-1)" title="Previous day">
+        <svg width="18" height="32" viewBox="0 0 24 40" fill="none"><polyline points="16,2 8,20 16,38" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+
+        <!-- Calendar day picker -->
+        <div class="day-picker" id="dayPicker"></div>
+
+        <button id="next" class="nav-arrow" onclick="getPrices(+1)" title="Next day">
+        <svg width="18" height="32" viewBox="0 0 24 40" fill="none"><polyline points="8,2 16,20 8,38" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+
+        <select id="zoner" class="zone-select" onchange="saveZone(); getPrices()">
+          <option value="SE1">SE1</option>
+          <option value="SE2">SE2</option>
+          <option value="SE3" selected>SE3</option>
+          <option value="SE4">SE4</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- Daily Chart -->
+    <div class="chart-wrap mt-3">
+      <canvas id="dailyChart"></canvas>
+    </div>
+  </div>
+
+  <footer>
+    <div class="p-2 d-flex flex-row justify-content-between align-items-center flex-wrap gap-1">
+      <span>Data: <a href="https://www.elprisetjustnu.se" target="_blank">elprisetjustnu.se</a></span>
+      <span class="footer-credit">
+        Created by Alex Svideniuk with
+        <a href="https://claude.ai" target="_blank" class="claude-link">
+          <img src="https://www.anthropic.com/favicon.ico" alt="Claude" style="width:13px;height:13px;vertical-align:middle;margin:0 2px;">
+          Claude
+        </a>
+      </span>
+    </div>
+  </footer>
+
+<script>
+// ─── Settings ─────────────────────────────────────────────────────────────────
+function saveZone() {
+  try { localStorage.setItem('elprices_zone', document.getElementById('zoner').value); } catch(e) {}
+}
+function loadZone() {
+  try {
+    const saved = localStorage.getItem('elprices_zone');
+    if (saved) document.getElementById('zoner').value = saved;
+  } catch(e) {}
+}
+var hourlyChart = null;
+var dailyChart  = null;
+var currentDate = new Date(); currentDate.setHours(0,0,0,0);
+var cache = {};
+
+// ─── Surcharges (&ouml;re/kWh, all before ×1.25 VAT) ─────────────────────────────
+const CHARGES = {
+  spotLabel:    'Spotpris',
+  rorliga:      3.85,   // R&ouml;rliga kostnader (incl. elcertifikat)
+  paslag:       6.90,   // P&aring;slag (G&ouml;teborg Energi margin)
+  eloverforing: 6.50,   // El&ouml;verf&ouml;ringsavgift (grid transmission)
+  energiskatt:  45.00,  // Energiskatt (state energy tax)
+};
+const VAT = 1.25;
+
+function totalPrice(spot) {
+  return (spot + CHARGES.rorliga + CHARGES.paslag + CHARGES.eloverforing + CHARGES.energiskatt) * VAT;
+}
+
+function priceBreakdown(spot) {
+  const base   = spot + CHARGES.rorliga + CHARGES.paslag + CHARGES.eloverforing + CHARGES.energiskatt;
+  const vatAmt = base * (VAT - 1);
+  const f = v => v.toFixed(1).padStart(6);
+  return [
+    ' Spot:      ' + f(spot),
+    ' R\u00f6rliga:   ' + f(CHARGES.rorliga),
+    ' P\u00e5slag:    ' + f(CHARGES.paslag),
+    ' El\u00f6verf.:  ' + f(CHARGES.eloverforing),
+    ' Eskatt:    ' + f(CHARGES.energiskatt),
+    ' Moms 25%:  ' + f(vatAmt),
+    ' \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500',
+    ' Totalt:    ' + f(base * VAT) + ' \u00f6re/kWh',
+  ];
+}
+
+// ─── Utilities ────────────────────────────────────────────────────────────────
+function strDate(date, fmt) {
+  const d = new Date(date);
+  if (!fmt || fmt === 'YYYY-MM-DD') {
+    const y  = d.getFullYear();
+    const mm = String(d.getMonth()+1).padStart(2,'0');
+    const dd = String(d.getDate()).padStart(2,'0');
+    return `${y}-${mm}-${dd}`;
+  }
+  return moment(d).format(fmt);
+}
+
+function hourRange(dt, dataFormat) {
+  dataFormat = dataFormat || "";
+  if (dataFormat === "" && new Date().setHours(0,0,0,0) < new Date(dt).setHours(0,0,0,0))
+    return "TOMORROW";
+  let d = new Date(dt);
+  let m = Math.floor(d.getMinutes() / 15) * 15;
+  let start = new Date(d); start.setMinutes(m, 0, 0);
+  let end   = new Date(start); end.setMinutes(m + 15);
+  return strDate(start, dataFormat + "HH:mm-") + strDate(end, "HH:mm");
+}
+
+function fontSize(ctx)   { return { size: Math.round(ctx.chart.width / 52) }; }
+function fontSize1vw(ctx){ return { size: Math.round(ctx.chart.width / 78) }; }
+function print(s)        { console.info(s); }
+
+function checkMinPrice(val, min) {
+  return (val < 0) || (val - min < 4) || (min > 0 && val / min < 1.1);
+}
+function roundUpBy(val, step)   { return (Math.floor(val / step) + 1) * step; }
+function roundDownBy(val, step) { return Math.floor(val / step) * step; }
+
+function setScale(chart) {
+  let y = chart.options.scales.y;
+  if (chart.options.zoomed) { y.max = chart.yZoomMax; y.min = chart.yZoomMin; }
+  else                      { y.max = chart.yMax;     y.min = chart.yMin; }
+}
+
+function createLabelAnnot(date, text, xAdj, yAdj) {
+  xAdj = (xAdj !== undefined) ? xAdj : 14; yAdj = yAdj || 0;
+  return {
+    type: 'line', scaleID: "x",
+    borderColor: "rgba(0,0,0,0.2)", borderWidth: 4, value: date,
+    label: {
+      rotation: 90, display: true, position: "0%",
+      backgroundColor: "rgba(153,0,153,0.1)", borderRadius: 0,
+      color: "rgba(0,0,0,0.3)", content: text,
+      yAdjust: yAdj, xAdjust: xAdj, font: fontSize,
+    }
+  };
+}
+
+// ─── API ──────────────────────────────────────────────────────────────────────
+async function fetchDay(date, zone) {
+  const key = strDate(date) + '_' + zone;
+  if (cache[key] !== undefined) return cache[key];
+
+  // Use local date parts directly to avoid timezone issues on mobile
+  const d    = new Date(date);
+  const year = d.getFullYear();
+  const mm   = String(d.getMonth()+1).padStart(2,'0');
+  const dd   = String(d.getDate()).padStart(2,'0');
+  const mmdd = `${mm}-${dd}`;
+  const url  = `https://www.elprisetjustnu.se/api/v1/prices/${year}/${mmdd}_${zone}.json`;
+
+  try {
+    const resp = await fetch(url);
+    if (!resp.ok) { cache[key] = null; return null; }
+    const raw = await resp.json();
+    const entries = raw.map(item => {
+      const spot = item.SEK_per_kWh * 100;  // SEK/kWh → öre/kWh
+      return {
+        dt:    new Date(item.time_start),
+        dtEnd: new Date(item.time_end),
+        spot:  spot,
+        price: totalPrice(spot)             // full price incl. all surcharges + VAT
+      };
+    });
+    cache[key] = entries;
+    return entries;
+  } catch(e) { cache[key] = null; return null; }
+}
+
+function buildResp(currentEntries, nextEntries, prevEntries, isToday, isOnTmr) {
+  const now = new Date();
+
+  let chartEntries;
+
+  if (isOnTmr) {
+    // Tomorrow selected: from previous even hour of today + full tomorrow
+    // Previous even hour: 14:xx-15:xx → 12:00, 16:xx-17:xx → 14:00 etc.
+    const prevEvenHour = new Date(now);
+    prevEvenHour.setHours(Math.floor(now.getHours() / 2) * 2 - 2, 0, 0, 0);
+    const fromIdx = (prevEntries || []).findIndex(e => e.dt >= prevEvenHour);
+    const slicedToday = fromIdx >= 0 ? prevEntries.slice(fromIdx) : (prevEntries || []);
+    chartEntries = [...slicedToday, ...currentEntries];
+  } else {
+    // Today or past: just the full selected day
+    chartEntries = [...currentEntries];
+  }
+
+  // Add phantom point at midnight of the day after last entry so the final tick gets a label
+  const lastEntry = chartEntries[chartEntries.length - 1];
+  const midnight = new Date(lastEntry.dtEnd);
+  midnight.setHours(0, 0, 0, 0);
+  if (+midnight > +lastEntry.dt) {
+    chartEntries = [...chartEntries, { dt: midnight, dtEnd: midnight, spot: null, price: null }];
+  }
+  // For all other views use just the selected day
+  let statEntries;
+  if (isOnTmr) {
+    // From current slot onwards through end of tomorrow
+    const fromNowIdx = chartEntries.findIndex(e => e.dt <= now && now < e.dtEnd);
+    statEntries = fromNowIdx >= 0 ? chartEntries.slice(fromNowIdx) : chartEntries;
+  } else {
+    statEntries = currentEntries;
+  }
+  const statPrices = statEntries.map(e => e.price);
+  const minIdx = statPrices.indexOf(Math.min(...statPrices));
+  const maxIdx = statPrices.indexOf(Math.max(...statPrices));
+
+  // Show current slot + NOW line when viewing today OR tomorrow
+  const showNow = isToday || isOnTmr;
+  const curIdx = showNow ? (prevEntries || currentEntries).findIndex
+    ? isOnTmr
+      ? chartEntries.findIndex(e => e.dt <= now && now < e.dtEnd)  // search in full chart
+      : currentEntries.findIndex(e => e.dt <= now && now < e.dtEnd)
+    : -1 : -1;
+  const curEntry = showNow && curIdx >= 0 ? chartEntries[curIdx] : null;
+
+  // todayCount = where tomorrow starts in chartEntries (for the TOMORROW annotation)
+  const todayCount = isOnTmr ? chartEntries.length - currentEntries.length : 0;
+
+  return {
+    curdate:     currentEntries[0].dt,
+    hours:       chartEntries,
+    count:       chartEntries.length,
+    min:         statEntries[minIdx],
+    max:         statEntries[maxIdx],
+    cur:         curEntry,
+    hasTomorrow: isOnTmr,
+    todayCount:  todayCount,
+  };
+}
+
+// ─── Day Picker ───────────────────────────────────────────────────────────────
+function buildDayPicker() {
+  const picker   = document.getElementById('dayPicker');
+  const today    = new Date(); today.setHours(0,0,0,0);
+  const tomorrow = new Date(today); tomorrow.setDate(today.getDate()+1);
+  const now      = new Date();
+  const tomorrowAvailable = now.getHours() >= 14;
+  const isOnToday    = +currentDate === +today;
+  const isOnTomorrow = +currentDate === +tomorrow;
+  const daysBeforeToday = Math.round((today - currentDate) / 86400000);
+
+  // Build the sliding window of pills shown around currentDate.
+  // If current is today or tomorrow → show today + tomorrow (if available).
+  // If current is 1–2 days before today → show last 4 days + today.
+  // If current is 3+ days before today → centre current date with 2 before and 2 after.
+  let windowDays = [];
+
+  if (isOnToday || isOnTomorrow) {
+    // Show 4 days before today in the window
+    for (let i = 4; i >= 1; i--) {
+      const d = new Date(today); d.setDate(today.getDate() - i);
+      windowDays.push(d);
+    }
+  } else if (daysBeforeToday <= 2) {
+    // Close to today: show a fixed run from (today-4) to (today-1)
+    for (let i = 4; i >= 1; i--) {
+      const d = new Date(today); d.setDate(today.getDate() - i);
+      windowDays.push(d);
+    }
+  } else {
+    // Centred window: 2 before, current, 2 after — but cap the right side at yesterday
+    for (let i = -2; i <= 2; i++) {
+      const d = new Date(currentDate); d.setDate(currentDate.getDate() + i);
+      // Don't include today or tomorrow in the sliding window (they're in the fixed section)
+      if (+d < +today) windowDays.push(d);
+    }
+  }
+
+  picker.innerHTML = '';
+
+  function makePill(d, label, extraClass) {
+    const isActive   = strDate(currentDate) === strDate(d);
+    const isTomorrow = +d === +tomorrow;
+    const isToday2   = +d === +today;
+    const pill = document.createElement('button');
+    pill.className = 'day-pill' +
+      (isActive   ? ' active'      : '') +
+      (isTomorrow ? ' is-tomorrow' : '') +
+      (isToday2   ? ' is-today'    : '') +
+      (extraClass ? ' ' + extraClass : '');
+    const dow = isTomorrow ? { short: 'TMR', long: 'TMR' }
+              : isToday2   ? { short: 'TDY', long: 'TODAY' }
+              : { short: label || moment(d).format('ddd').toUpperCase(), long: null };
+    const dowHtml = dow.long
+      ? `<span class="pill-short">${dow.short}</span><span class="pill-long">${dow.long}</span>`
+      : dow.short;
+    pill.innerHTML = `
+      <div class="pill-dow">${dowHtml}</div>
+      <div class="pill-day">${moment(d).format('D')}</div>
+      <div class="pill-mon">${moment(d).format('MMM')}</div>`;
+    pill.onclick = () => getPrices(0, d);
+    return pill;
+  }
+
+  // Sliding window pills (past days)
+  windowDays.forEach(d => picker.appendChild(makePill(d)));
+
+  // Separator gap if there's a jump between window and today
+  if (windowDays.length > 0) {
+    const lastWindow = windowDays[windowDays.length - 1];
+    const dayGap = Math.round((today - lastWindow) / 86400000);
+    if (dayGap > 1) {
+      const sep = document.createElement('div');
+      sep.className = 'pill-gap';
+      sep.textContent = '·····';
+      picker.appendChild(sep);
+    }
+  }
+
+  // Fixed: Today pill
+  picker.appendChild(makePill(today));
+
+  // Fixed: Tomorrow pill (if available)
+  if (tomorrowAvailable) {
+    picker.appendChild(makePill(tomorrow));
+  }
+
+  // Prev/Next arrow state
+  // Prev: disable if we're already 5 days before today (arbitrary history limit)
+  const maxDaysBack = 60;
+  const earliest = new Date(today); earliest.setDate(today.getDate() - maxDaysBack);
+  document.getElementById('prev').classList.toggle('disabled', currentDate <= earliest);
+  document.getElementById('next').classList.toggle('disabled', isOnTomorrow || (isOnToday && !tomorrowAvailable));
+
+  // After DOM update, check pill widths and switch to long label if wide enough
+  requestAnimationFrame(() => {
+    document.querySelectorAll('.day-pill').forEach(pill => {
+      if (pill.querySelector('.pill-long')) {
+        pill.classList.toggle('label-wide', pill.offsetWidth >= 58);
+      }
+    });
+  });
+}
+
+// ─── Navigation ───────────────────────────────────────────────────────────────
+function isTomorrowShown() {
+  const tomorrow = new Date(); tomorrow.setHours(24,0,0,0);
+  return strDate(currentDate) === strDate(tomorrow);
+}
+
+async function getPrices(delta, day) {
+  document.getElementById('next').classList.add('disabled');
+  document.getElementById('prev').classList.add('disabled');
+
+  if (day !== undefined && day !== null) {
+    currentDate = new Date(day); currentDate.setHours(0,0,0,0);
+  } else if (delta !== undefined && delta !== 0) {
+    currentDate = new Date(currentDate); currentDate.setDate(currentDate.getDate() + delta);
+  }
+
+  // Clamp to [past, tomorrow]
+  const today   = new Date(); today.setHours(0,0,0,0);
+  const tmrDate = new Date(today); tmrDate.setDate(today.getDate()+1);
+  if (currentDate > tmrDate) { currentDate = new Date(tmrDate); }
+
+  buildDayPicker();  // rebuild picker with active state
+
+  const isToday = strDate(currentDate) === strDate(today);
+  const isOnTmr = strDate(currentDate) === strDate(tmrDate);
+  const zone    = document.getElementById('zoner').value;
+  // When viewing tomorrow, prevDay = today
+  const prevDay = new Date(today);
+
+  const [currentEntries, prevEntries] = await Promise.all([
+    fetchDay(currentDate, zone),
+    isOnTmr ? fetchDay(prevDay, zone) : Promise.resolve(null)
+  ]);
+
+  if (!currentEntries) {
+    document.getElementById('prev').classList.remove('disabled');
+    return;
+  }
+
+  showHourlyPrices(buildResp(currentEntries, null, prevEntries, isToday, isOnTmr));
+  loadDailyChart(zone);
+}
+
+// ─── Hourly Chart ─────────────────────────────────────────────────────────────
+function hourlyChartInit() {
+  const hData = {
+    datasets: [{
+      stepped: true,
+      fill: 'origin',
+      pointStyle: false,
+      parsing: { yAxisKey: 'price' },
+      backgroundColor: "rgba(0,0,255,0.1)",
+      borderColor: "rgba(0,0,255,0.5)",
+      segment: {
+        backgroundColor: function(ctx) {
+          const now = new Date();
+          const isCurrent = ctx.p0.raw.dt < now && ctx.p1.raw.dt > now;
+          const transp = isCurrent ? 0.4 : 0.15;
+          if (checkMinPrice(ctx.p0.parsed.y, ctx.chart.min))
+            return "rgba(0,204,0," + transp + ")";
+          return "rgba(0,0,255," + transp + ")";
+        },
+        borderColor: function(ctx) {
+          if (checkMinPrice(ctx.p0.parsed.y, ctx.chart.min)) return "rgba(0,204,0,0.5)";
+          return "rgba(0,0,255,0.5)";
+        },
+      }
+    }]
+  };
+
+  const hOpt = {
+    responsive: false,
+    maintainAspectRatio: false,
+    zoomed: false,
+    parsing: { xAxisKey: 'dt' },
+    interaction: { intersect: false, mode: 'index', axis: 'x',
+                   xAlign: "center", yAlign: 'bottom',
+                   titleColor: "rgba(255,255,0,1)", titleAlign: 'center' },
+    scales: {
+      y: {
+        ticks: { font: fontSize },
+        grid: {
+          color: function(ctx) {
+            let v = ctx.tick.value, y = ctx.chart.scales.y;
+            if (v % 100 === 0 && v !== y.max && v !== y.min) return "rgba(0,0,0,0.5)";
+            if (ctx.tick.label) return "rgba(0,0,0,0.2)";
+          },
+          lineWidth: function(ctx) {
+            let v = ctx.tick.value, y = ctx.chart.scales.y;
+            if (v % 100 === 0 && v !== y.max && v !== y.min) return 3;
+            return 1;
+          }
+        }
+      },
+      x: {
+        type: 'time',
+        time: { unit: 'hour', tooltipFormat: "DD MMM YY HH:mm", displayFormats: { hour: 'HH:mm' } },
+        grid: { drawTicks: false },
+        ticks: {
+          autoSkip: false,
+          font: function(ctx) {
+            let fnt = fontSize(ctx);
+            if (new Date(ctx.tick.value).getHours() === 0) fnt.weight = 'bolder';
+            return fnt;
+          },
+          callback: function(value) {
+            let dt = new Date(this.getLabelForValue(value));
+            if (dt.getHours() === 0)       return strDate(dt, "DD MMM");
+            if (dt.getHours() % 2 === 1)   return "";
+            return strDate(dt, "HH:mm");
+          }
+        }
+      }
+    },
+    plugins: {
+      legend: false,
+      tooltip: {
+        titleFont: fontSize, bodyFont: { family: 'monospace', size: 9 },
+        callbacks: {
+          title:      function(ctx) { return hourRange(ctx[0].raw.dt, "DD MMM'YY "); },
+          afterTitle: function(ctx) {
+            let delta = Math.floor((new Date(ctx[0].raw.dt) - new Date()) / 1000 / 60);
+            if (delta > 0) return "in " + Math.floor(delta/60) + "h " + (delta%60) + "min";
+          },
+          label: function(ctx) {
+            return priceBreakdown(ctx.raw.spot);
+          }
+        }
+      }
+    },
+    events: ['click', 'touchstart', 'touchmove', 'touchend'],
+    onClick: (e) => {
+      hourlyChart.options.plugins.tooltip.enabled = true;
+      if (e.native.detail === 2) {
+        hourlyChart.options.zoomed = !hourlyChart.options.zoomed;
+        setScale(hourlyChart);
+      }
+      hourlyChart.update();
+    }
+  };
+
+  const swipePlugin = [{
+    id: 'swipeHandler',
+    beforeEvent(chart, args, opts) {
+      const e = args.event.native;
+      if      (e.type === 'touchstart') { opts.startX = args.event.x; opts.startY = args.event.y; }
+      else if (e.type === 'touchmove')  { opts.endX   = args.event.x; opts.endY   = args.event.y; }
+      else if (e.type === 'touchend')   {
+        const dx = opts.startX - opts.endX, dy = opts.startY - opts.endY;
+        if (dx < -300) getPrices(-1);
+        if (dx >  300) getPrices(+1);
+        if (dy >  300) {
+          hourlyChart.options.zoomed = !hourlyChart.options.zoomed;
+          setScale(hourlyChart); hourlyChart.update();
+        }
+      }
+    },
+    defaults: { startX: 0, startY: 0, endX: 0, endY: 0 }
+  }];
+
+  hourlyChart = new Chart("hourlyChart", { type:"line", data:hData, options:hOpt, plugins:swipePlugin });
+}
+
+function showHourlyPrices(resp) {
+  document.getElementById('prev').classList.remove('disabled');
+
+  const min = resp.min, max = resp.max;
+  hourlyChart.min = min.price;
+
+  document.getElementById('lblMinP').textContent = min.price.toFixed(2);
+  document.getElementById('lblMinSpot').textContent = min.spot.toFixed(2) + ' öre';
+  document.getElementById('lblMinT').textContent = hourRange(min.dt);
+  document.getElementById('lblMaxP').textContent = max.price.toFixed(2);
+  document.getElementById('lblMaxSpot').textContent = max.spot.toFixed(2) + ' öre';
+  document.getElementById('lblMaxT').textContent = hourRange(max.dt);
+
+  let yMax = roundUpBy(max.price, 50); if (yMax < 100) yMax = 100;
+  let yMin = min.price < 0 ? roundDownBy(min.price, 10) : 0;
+  hourlyChart.yMax = yMax; hourlyChart.yMin = yMin;
+  hourlyChart.yZoomMin = roundDownBy(min.price, 5);
+  hourlyChart.yZoomMax = roundUpBy(max.price / 0.9, 5);
+  setScale(hourlyChart);
+
+  hourlyChart.data.datasets[0].data = resp.hours;
+
+  // Current 15-min slot box
+  const now = new Date();
+  const slotStart = new Date(now); 
+  slotStart.setMinutes(Math.floor(now.getMinutes()/15)*15, 0, 0);
+  const slotEnd = new Date(slotStart); slotEnd.setMinutes(slotStart.getMinutes()+15);
+
+  const annots = {
+    nowLine: {
+      type:'line', scaleID:"x",
+      borderColor:'rgba(255,100,0,0.8)', borderWidth:4, drawTime:'afterDraw',
+      value: now,
+      label:{ rotation:90, display:true, position:"start", content:"NOW" }
+    },
+    curSlot: {
+      type:'box', borderColor:'rgba(0,0,0,0.3)', backgroundColor:'rgba(0,0,0,0.1)',
+      borderWidth:1, drawTime:'afterDraw',
+      xMin: slotStart, xMax: slotEnd,
+      yMin: function(ctx){ return ctx.chart.scales.y.min; },
+      yMax: function(ctx){ return ctx.chart.scales.y.max; },
+    }
+  };
+
+  if (resp.hasTomorrow) {
+    annots.tomorrow = createLabelAnnot(resp.hours[resp.todayCount].dt, 'TOMORROW');
+  }
+
+  if (!resp.cur) {
+    document.getElementById('divNow').style.display = 'none';
+    hourlyChart.options.plugins.annotation = false;
+  } else {
+    document.getElementById('lblCurP').textContent = resp.cur.price.toFixed(2);
+    document.getElementById('lblCurSpot').textContent = resp.cur.spot.toFixed(2) + ' öre';
+    document.getElementById('lblCurT').textContent = hourRange(resp.cur.dt);
+    document.getElementById('divNow').style.display = '';
+    hourlyChart.options.plugins.annotation = { annotations: annots };
+  }
+
+  hourlyChart.options.plugins.tooltip.enabled = false;
+  hourlyChart.update();
+}
+
+// ─── Daily Chart ──────────────────────────────────────────────────────────────
+function dailyChartInit() {
+  const dData = {
+    datasets: [{
+      label:"Min", parsing:{ yAxisKey:'min' },
+      borderColor:"rgba(0,153,0,0.5)", fill:+2, cubicInterpolationMode:'monotone',
+      pointStyle: false,
+      segment:{
+        backgroundColor: function(ctx){
+          let month = new Date(ctx.p0.raw.date).getMonth();
+          return month % 2 ? "rgba(255,228,181,0.5)" : "rgba(175,238,238,0.5)";
+        }
+      }
+    },{
+      label:"Average", parsing:{ yAxisKey:'avg' },
+      cubicInterpolationMode:'monotone',
+      borderColor:"rgba(0,0,0,0.5)", backgroundColor:"rgba(0,0,0,0.5)",
+      borderDash:[5,5], pointStyle:false, fill:false,
+    },{
+      label:"Max", parsing:{ yAxisKey:'max' },
+      cubicInterpolationMode:'monotone', pointStyle: false,
+      borderColor:"rgba(204,0,0,0.5)", backgroundColor:"rgba(204,0,255,0.5)", fill:2
+    }]
+  };
+
+  const dOpt = {
+    responsive: false,
+    maintainAspectRatio: false,
+    parsing:{ xAxisKey:'date' }, animation:false,
+    scales: {
+      y:{
+        grid:{
+          lineWidth: function(ctx){
+            let v = ctx.tick.value;
+            if (v === 0) return 5;
+            if (ctx.tick.label) return 3;
+            return 1;
+          }
+        },
+        ticks:{
+          font:fontSize, autoSkip:false, stepSize:10,
+          callback: function(value){
+            let label = +this.getLabelForValue(value);
+            const step = this.max > 500 ? 100 : 50;
+            if (label % step === 0 || label === this.min || label === this.max) return label;
+            return "";
+          }
+        }
+      },
+      x:{ autoSkip:false, type:'time', time:{ unit:'day' }, ticks:{ autoSkip:false, font:fontSize } }
+    },
+    plugins:{ legend:false },
+    interaction:{ mode:'nearest', axis:'x' },
+    onClick: (e) => {
+      const pos    = Chart.helpers.getRelativePosition(e, dailyChart);
+      const dataX  = dailyChart.scales.x.getValueForPixel(pos.x);
+      const selected = new Date(dailyChart.scales.x.getLabelForValue(dataX));
+      getPrices(0, selected);
+    }
+  };
+
+  dailyChart = new Chart("dailyChart", { type:"line", data:dData, options:dOpt });
+}
+
+async function loadDailyChart(zone) {
+  const today    = new Date(); today.setHours(0,0,0,0);
+  const tomorrow = new Date(today); tomorrow.setDate(today.getDate()+1);
+  const daysBeforeToday = Math.round((today - currentDate) / 86400000);
+
+  let fromDate, toDate;
+  if (daysBeforeToday > 30) {
+    // Centre ±30 days around selected date, capped so we don't go beyond tomorrow
+    fromDate = new Date(currentDate); fromDate.setDate(currentDate.getDate() - 30);
+    toDate   = new Date(currentDate); toDate.setDate(currentDate.getDate() + 30);
+    if (toDate > tomorrow) toDate = tomorrow;
+  } else {
+    // Default: last 60 days up to tomorrow (if available)
+    fromDate = new Date(today); fromDate.setDate(today.getDate() - 59);
+    toDate   = tomorrow;
+  }
+
+  // Build list of dates in range
+  const dates = [];
+  for (let d = new Date(fromDate); d <= toDate; d.setDate(d.getDate() + 1))
+    dates.push(new Date(d));
+
+  const results = await Promise.all(
+    dates.map(d => fetchDay(d, zone).then(entries => ({ d, entries })))
+  );
+
+  let allMin = Infinity, allMax = -Infinity;
+  const dayStats = [], dateLabels = [];
+  for (const { d, entries } of results) {
+    if (!entries || entries.length === 0) continue;
+    const prices = entries.map(e => e.price);
+    const mn = Math.min(...prices), mx = Math.max(...prices);
+    const avg = prices.reduce((a,b)=>a+b,0) / prices.length;
+    allMin = Math.min(allMin, mn); allMax = Math.max(allMax, mx);
+    const ds = strDate(d);
+    dateLabels.push(ds);
+    dayStats.push({ date:ds, min:mn, avg, max:mx });
+  }
+  if (dayStats.length === 0) return;
+
+  // Phantom point for the day after last so final x-axis tick gets a label
+  const lastDate = new Date(dateLabels[dateLabels.length - 1]);
+  const phantomDate = new Date(lastDate); phantomDate.setDate(lastDate.getDate() + 1);
+  const phantomDs = strDate(phantomDate);
+  dateLabels.push(phantomDs);
+  dayStats.push({ date: phantomDs, min: null, avg: null, max: null });
+
+  // Dynamic y step: 100 if max > 500, else 50
+  const step = allMax > 500 ? 100 : 50;
+  const y = dailyChart.options.scales.y;
+  y.min = allMin < 0 ? roundDownBy(allMin, step) : 0;
+  y.max = roundUpBy(allMax, step);
+  y.ticks.stepSize = step;
+  y.ticks.callback = function(value) {
+    const label = +this.getLabelForValue(value);
+    if (label % step === 0 || label === this.min || label === this.max) return label;
+    return "";
+  };
+
+  dailyChart.data.labels = dateLabels;
+  dailyChart.data.datasets[0].data = dayStats;
+  dailyChart.data.datasets[1].data = dayStats;
+  dailyChart.data.datasets[2].data = dayStats;
+
+  // Annotations: month labels + selected date line
+  const annots = {};
+  for (const ds of dateLabels) {
+    const d = new Date(ds);
+    if (d.getDate() === 1)
+      annots['month_' + ds] = createLabelAnnot(ds, strDate(d, "MMMM YYYY"));
+  }
+  annots.lineCurrentDate = {
+    type:'line', scaleID:"x",
+    borderColor:'rgba(178,102,255,0.5)', borderWidth:8,
+    value: strDate(currentDate),
+    label:{ rotation:90, display:true, position:"start",
+            content: strDate(currentDate, "DD MMM YYYY") }
+  };
+
+  dailyChart.options.plugins.annotation = { annotations:annots };
+  dailyChart.update();
+}
+
+// ─── Start ────────────────────────────────────────────────────────────────────
+function sizeCharts() {
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+  const isMobile = vw < 768;
+  const w = Math.min(vw, 800);
+
+  const hC = document.getElementById('hourlyChart');
+  const dC = document.getElementById('dailyChart');
+
+  let hH, dH;
+
+  if (isMobile) {
+    hH = Math.round(w * 0.4);
+    dH = hH;
+  } else {
+    const statsH  = document.querySelector('.stats-bar').offsetHeight  || 70;
+    const navH    = document.querySelector('.nav-bar').offsetHeight     || 56;
+    const footerH = document.querySelector('footer').offsetHeight       || 36;
+    const gaps    = 24;
+    const available = vh - statsH - navH - footerH - gaps;
+    hH = Math.round(available * 0.4);
+    dH = hH;
+  }
+
+  // Only set height — width is handled by CSS width:100% on canvas + chart-wrap
+  hC.style.height = hH + 'px';
+  dC.style.height = dH + 'px';
+  if (hourlyChart) hourlyChart.resize(hC.offsetWidth, hH);
+  if (dailyChart)  dailyChart.resize(dC.offsetWidth, dH);
+}
+
+hourlyChartInit();
+dailyChartInit();
+loadZone();  // restore saved zone before first fetch
+requestAnimationFrame(() => {
+  sizeCharts();
+  // Default view: tomorrow if available (after 14:00), else today
+  const _now = new Date();
+  if (_now.getHours() >= 14) {
+    const _tmr = new Date(_now); _tmr.setDate(_now.getDate()+1); _tmr.setHours(0,0,0,0);
+    currentDate = _tmr;
+  }
+  getPrices(0);
+});
+
+window.addEventListener('resize', sizeCharts);
+
+// Auto-refresh every 15 min
+setInterval(() => { cache = {}; getPrices(0); }, 15 * 60 * 1000);
+</script>
+</body>
+</html>
