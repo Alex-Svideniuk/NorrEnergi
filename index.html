@@ -371,18 +371,16 @@ function buildResp(currentEntries, nextEntries, prevEntries, isToday, isOnTmr) {
   } else {
     statEntries = currentEntries;
   }
-  const statPrices = statEntries.map(e => e.price);
-  const minIdx = statPrices.indexOf(Math.min(...statPrices));
-  const maxIdx = statPrices.indexOf(Math.max(...statPrices));
+  const statPrices = statEntries.map(e => e.price).filter(p => p !== null);
+  const minIdx = statEntries.findIndex(e => e.price === Math.min(...statPrices));
+  const maxIdx = statEntries.findIndex(e => e.price === Math.max(...statPrices));
 
   // Show current slot + NOW line when viewing today OR tomorrow
   const showNow = isToday || isOnTmr;
-  const curIdx = showNow ? (prevEntries || currentEntries).findIndex
-    ? isOnTmr
-      ? chartEntries.findIndex(e => e.dt <= now && now < e.dtEnd)  // search in full chart
-      : currentEntries.findIndex(e => e.dt <= now && now < e.dtEnd)
-    : -1 : -1;
-  const curEntry = showNow && curIdx >= 0 ? chartEntries[curIdx] : null;
+  const curIdx = showNow ? chartEntries.findIndex(e => e.dt <= now && now < e.dtEnd) : -1;
+  const curEntry = curIdx >= 0 ? chartEntries[curIdx] : null;
+
+  print(`buildResp: isToday=${isToday} isOnTmr=${isOnTmr} chartEntries=${chartEntries.length} curIdx=${curIdx} minIdx=${minIdx} maxIdx=${maxIdx}`);
 
   // todayCount = where tomorrow starts in chartEntries (for the TOMORROW annotation)
   const todayCount = isOnTmr ? chartEntries.length - currentEntries.length : 0;
@@ -391,8 +389,8 @@ function buildResp(currentEntries, nextEntries, prevEntries, isToday, isOnTmr) {
     curdate:     currentEntries[0].dt,
     hours:       chartEntries,
     count:       chartEntries.length,
-    min:         statEntries[minIdx],
-    max:         statEntries[maxIdx],
+    min:         statEntries[minIdx] || currentEntries[0],
+    max:         statEntries[maxIdx] || currentEntries[0],
     cur:         curEntry,
     hasTomorrow: isOnTmr,
     todayCount:  todayCount,
@@ -400,12 +398,21 @@ function buildResp(currentEntries, nextEntries, prevEntries, isToday, isOnTmr) {
 }
 
 // ─── Day Picker ───────────────────────────────────────────────────────────────
+var tomorrowDataAvailable = false;  // set after probing the API on load
+
+async function checkTomorrowAvailable(zone) {
+  const today    = new Date(); today.setHours(0,0,0,0);
+  const tomorrow = new Date(today); tomorrow.setDate(today.getDate()+1);
+  const data = await fetchDay(tomorrow, zone);
+  tomorrowDataAvailable = !!(data && data.length > 0);
+  buildDayPicker();  // rebuild picker now that we know
+}
+
 function buildDayPicker() {
   const picker   = document.getElementById('dayPicker');
   const today    = new Date(); today.setHours(0,0,0,0);
   const tomorrow = new Date(today); tomorrow.setDate(today.getDate()+1);
-  const now      = new Date();
-  const tomorrowAvailable = now.getHours() >= 14;
+  const tomorrowAvailable = tomorrowDataAvailable;
   const isOnToday    = +currentDate === +today;
   const isOnTomorrow = +currentDate === +tomorrow;
   const daysBeforeToday = Math.round((today - currentDate) / 86400000);
@@ -889,7 +896,7 @@ function sizeCharts() {
   let hH, dH;
 
   if (isMobile) {
-    hH = Math.round(w * 0.4);
+    hH = Math.round(w * 0.6);
     dH = hH;
   } else {
     const statsH  = document.querySelector('.stats-bar').offsetHeight  || 70;
@@ -897,7 +904,7 @@ function sizeCharts() {
     const footerH = document.querySelector('footer').offsetHeight       || 36;
     const gaps    = 24;
     const available = vh - statsH - navH - footerH - gaps;
-    hH = Math.round(available * 0.4);
+    hH = Math.round(available * 0.45);
     dH = hH;
   }
 
@@ -910,14 +917,15 @@ function sizeCharts() {
 
 hourlyChartInit();
 dailyChartInit();
-loadZone();  // restore saved zone before first fetch
-requestAnimationFrame(() => {
+loadZone();
+requestAnimationFrame(async () => {
   sizeCharts();
-  // Default view: tomorrow if available (after 14:00), else today
-  const _now = new Date();
-  if (_now.getHours() >= 14) {
-    const _tmr = new Date(_now); _tmr.setDate(_now.getDate()+1); _tmr.setHours(0,0,0,0);
-    currentDate = _tmr;
+  const zone = document.getElementById('zoner').value;
+  await checkTomorrowAvailable(zone);
+  // Default view: tomorrow if data available, else today
+  if (tomorrowDataAvailable) {
+    const _today = new Date(); _today.setHours(0,0,0,0);
+    currentDate = new Date(_today); currentDate.setDate(_today.getDate()+1);
   }
   getPrices(0);
 });
@@ -925,7 +933,12 @@ requestAnimationFrame(() => {
 window.addEventListener('resize', sizeCharts);
 
 // Auto-refresh every 15 min
-setInterval(() => { cache = {}; getPrices(0); }, 15 * 60 * 1000);
+setInterval(async () => {
+  cache = {};
+  const zone = document.getElementById('zoner').value;
+  await checkTomorrowAvailable(zone);
+  getPrices(0);
+}, 15 * 60 * 1000);
 </script>
 </body>
 </html>
